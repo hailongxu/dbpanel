@@ -58,14 +58,38 @@ pub fn copy(dbe:&DatabaseEnv, table:&str, table_new:&str)->ExitStatus {
     dbe.exe_sql(&insert_data_sql)
 }
 
-
-pub fn rename(dbe:&DatabaseEnv, table:&str)->ExitStatus {
-    let sql_create_empty=format!("create table {table}_empty like {table}");
-    let sql_rename_cur_to_old=format!("alter table {table} rename to {table}_old");
-    let sql_rename_empty_to_cur=format!("alter table {table}_empty rename to {table}");
-    let sql=format!("{}; {}; {};",sql_create_empty, sql_rename_cur_to_old, sql_rename_empty_to_cur);
+pub fn create_empty(dbe:&DatabaseEnv, src_table:&str, empty_table:&str)->ExitStatus {
+    let sql = format!("create table {empty_table} like {src_table}");
     dbe.exe_sql(&sql)
 }
+
+pub fn remove_postfix(dbe:&DatabaseEnv, table:&str, postfix:&str)->ExitStatus {
+    assert!(table.ends_with(postfix));
+    let src = table;
+    let dst = table.strip_suffix(postfix).unwrap();
+    rename(dbe, &[(&src, &dst)])
+}
+
+pub fn add_postfix(dbe:&DatabaseEnv, table:&str, postfix:&str)->ExitStatus {
+    let src = table;
+    let dst = format!("{table}_{postfix}");
+    rename(dbe, &[(&src, &dst)])
+}
+
+
+// pub fn restore_old(dbe:&DatabaseEnv, table:&str)->ExitStatus {
+//     let old = format!("{table}_old");
+//     rename(dbe, &[(&old,table)])
+// }
+
+pub fn rename(dbe:&DatabaseEnv, src_dst:&[(&str,&str)])->ExitStatus {
+    let sql = src_dst.iter()
+        .map(|(src, dst)| format!("alter table {src} rename to {dst}"))
+        .collect::<Vec<_>>()
+        .join("; ");
+    dbe.exe_sql(&sql)
+}
+
 
 #[derive(Debug, serde::Deserialize)]
 pub struct DumpEnv {
@@ -77,7 +101,8 @@ pub struct DumpEnv {
     database: String,
     pub years: String,
     pub months: String,
-    basedir: String,
+    pub postfix: String,
+    pub basedir: String,
 }
 
 pub fn to_ro_dbenv(env:&DumpEnv)->DatabaseEnv {
@@ -138,7 +163,7 @@ impl DatabaseEnv {
         self.database.push_str(db);
     }
 
-    pub fn dump_out(&self, table:&str)->ExitStatus {
+    pub fn dump_out(&self, table:&str, basedir:&str)->ExitStatus {
         let url = &self.url;
         let urlp = format!("-h{url}");
         let user = &self.user;
@@ -146,15 +171,12 @@ impl DatabaseEnv {
         let passwd = &self.passwd;
         let passwdp = format!("-p{}",passwd);
         let database = &self.database;
-        let table_out = format!("{table}.sql");
-        Command::new("mysqldump")
-            .arg(urlp)
-            .arg(userp)
-            .arg(passwdp)
-            .arg(database)
-            .arg(table)
-            .arg(">")
-            .arg(table_out)
+        let table_out = format!("{basedir}/{table}.sql");
+        let mysqldump_cmd = format!("mysqldump {urlp} {userp} {passwdp} {database} {table} > {table_out}");
+        println!("----- {mysqldump_cmd} ------");
+        Command::new("sh")
+            .arg("-c")
+            .arg(mysqldump_cmd)
             .status()
             .expect("failed to execute process")
     }
@@ -169,7 +191,7 @@ impl DatabaseEnv {
         let database = &self.database;
         let databasep  = format!("-D{}",database);
         let sqlp = format!("-e\"{sql}\"");
-        println!("{sql}");
+        println!("----- {sql} -----");
         let status = Command::new("mysql")
             .arg(urlp)
             .arg(userp)
@@ -194,15 +216,18 @@ pub fn for_each_name(basedir:&str,years: &[&str], handle: impl Fn(&str, &str, &s
 }
 
 pub fn zip(basedir:&str,year:&str,name:&str)->ExitStatus {
-    let dumpdir=format!("{basedir}/{year}");
-    let zipfile=format!("{dumpdir}/{name}.zip");
+    let dumpdir = format!("{basedir}/{year}");
+    let zipfile = format!("{dumpdir}/{name}.zip");
     let zipsrc = format!("{dumpdir}/{name}*.sql");
-    // #zip $dumpdir/$table.zip "$dumpdir/?" 
-    // zip $dumpdir/$zipfile.zip "$dumpdir/${zipfile}*.sql"
-    let status = Command::new("zip")
-        .arg(zipfile)
-        .arg(zipsrc)
-        // .stdout(Stdio::piped())
+
+    // for wildcard * is expanded by shell not by zip,
+    // we should put zip in a sh shell
+    // because Command's parent is not a shell, but a bin built by rustc 
+    let zipcmd = format!("zip {zipfile} {zipsrc}");
+    let mut cmd = Command::new("sh");
+    cmd.arg("-c").arg(zipcmd);
+    println!("--------- {cmd:?} -----------");
+    let status = cmd
         .status()
         .expect("failed to execute process");
     println!("process finished with: {status}");

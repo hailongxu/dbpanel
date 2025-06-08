@@ -1,20 +1,23 @@
-use util::for_each_tables;
+use util::{for_each_tables, remove_postfix};
 
 
 fn main() {
     let env = util::load_dump_env();
-    println!("Dumping tables for database: {:?}", env);
-    let env_ro = util::to_ro_dbenv(&env);
+    println!("Remove postfix from tables for database: {:?}", env);
+    let env_rw = util::to_rw_dbenv(&env);
     let years:Vec<_> = env.years.split_whitespace().collect();
     let months:Vec<_> = env.months.split_whitespace().collect();
-    let dump_out = {
+    let rename = {
         |table: &str, _ext: &str| {
         let table = format!("{table}_{}", env.postfix);
-        env_ro.dump_out(&table,&env.basedir);
+        remove_postfix(&env_rw, &table,&env.postfix);
     }};
     let handlers: Vec<&dyn Fn(&str, &str)> = vec![
-        &dump_out,
+        &rename,
     ];
+    // why does work when we use static [] ?????
+    // let handlers = [
+    //     &rename,
+    // ];
     for_each_tables(&years, &months, &handlers);
 }
-

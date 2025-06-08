@@ -5,6 +5,8 @@ members = [
     "copy",
     "dump",
     "ziptab",
+    "take-to-postfix",
+    "remove-postfix",
 ]
 
 
