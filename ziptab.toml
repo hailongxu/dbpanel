@@ -1,2 +1,2 @@
-basedir="d:/doc/tmp/dumptest"
-years="20 21"
+basedir="/data/dump"
+years="20"
