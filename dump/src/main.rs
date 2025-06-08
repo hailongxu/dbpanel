@@ -10,7 +10,7 @@ fn main() {
     let months:Vec<_> = env.months.split_whitespace().collect();
     let dump_out = {
         |table: &str, _ext: &str| {
-        env_ro.dump_out(table);
+        env_ro.dump_out(table,&env.basedir);
     }};
     let rename = {
         |table: &str, _ext: &str| {
@@ -18,7 +18,7 @@ fn main() {
     }};
     let handlers: Vec<&dyn Fn(&str, &str)> = vec![
         &dump_out,
-        &rename,
+        //&rename,
     ];
     for_each_tables(&years, &months, &handlers);
 }
