@@ -3,11 +3,13 @@ use util::{self, for_each_name, for_each_tables, DatabaseEnv};
 
 fn main() {
     let mut args = args();
+    args.next(); // ignore the self name
     let Some(cmd) = args.next() else {
-        eprintln!("Usage: migrate <config.toml>");
+        help();
         std::process::exit(1);
     };
     let cfg = args.next();
+    let postfix = args.next().unwrap_or_default();
 
     let env = util::load_env(cfg);
     let env_ro = util::to_ro_dbenv(&env);
@@ -18,22 +20,25 @@ fn main() {
 
     match cmd.as_str() {
         "dump" => {
-            dump(&env_ro,&years, &months, &env.postfix, &env.basedir);
+            dump(&env_ro,&years, &months, &postfix, &env.basedir);
         }
-        "copy-test" => {
-            copy_test(&env_rw);
+        "copy" => {
+            copy(&env_rw, &years, &months, &postfix);
         }
         "zip" => {
             zip(&env.basedir, &years);
         }
         "remove-postfix" => {
-            remove_postfix(&env_rw, &years, &months, &env.postfix);
+            remove_postfix(&env_rw, &years, &months, &postfix);
         }
-        "take-to_postfix" => {
-            take_to_postfix(&env_rw, &years, &months, &env.postfix);
+        "take-to-postfix" => {
+            take_to_postfix(&env_rw, &years, &months, &postfix);
         }
         "count" => {
-            count(&env_ro, &years, &months, &env.postfix);
+            count(&env_ro, &years, &months, &postfix);
+        }
+        "drop" => {
+            drop_table(&env_rw, &postfix);
         }
         _ => {
             eprintln!("Unknown command: {cmd}");
@@ -46,7 +51,7 @@ fn main() {
 fn dump(env:&DatabaseEnv, years:&[&str], months:&[&str], postfix:&str, basedir:&str) {
     let dump_out = {
         |table: &str, _ext: &str| {
-        let table = format!("{table}_{}", postfix);
+        let table = combine(table, postfix);
         env.dump_out(&table,basedir);
     }};
     let handlers: Vec<&dyn Fn(&str, &str)> = vec![
@@ -55,11 +60,20 @@ fn dump(env:&DatabaseEnv, years:&[&str], months:&[&str], postfix:&str, basedir:&
     for_each_tables(&years, &months, &handlers);
 }
 
-fn copy_test(env_rw:&DatabaseEnv) {
-    let table = "tablename";
-    let table_new = &format!("{table}_new");
-    println!("----------{table}, {table_new}");
-    util::copy(&env_rw, table, table_new);
+fn copy(env_rw:&DatabaseEnv, years:&[&str], months:&[&str], postfix:&str) {
+    let copy = {
+        |table: &str, _ext: &str| {
+        let table_new = combine(table, postfix);
+        util::copy(&env_rw, &table, &table_new);
+    }};
+    let handlers: Vec<&dyn Fn(&str, &str)> = vec![
+        &copy,
+    ];
+    // why does work when we use static [] ?????
+    // let handlers = [
+    //     &rename,
+    // ];
+    for_each_tables(&years, &months, &handlers);
 }
 
 fn zip(basedir:&str, years:&[&str]) {
@@ -69,7 +83,7 @@ fn zip(basedir:&str, years:&[&str]) {
 fn remove_postfix(env_rw:&DatabaseEnv, years:&[&str], months:&[&str], postfix:&str) {
     let rename = {
         |table: &str, _ext: &str| {
-        let table = format!("{table}_{}", postfix);
+        let table = combine(table, postfix);
         util::remove_postfix(&env_rw, &table,postfix);
     }};
     let handlers: Vec<&dyn Fn(&str, &str)> = vec![
@@ -88,6 +102,7 @@ fn take_to_postfix(env_rw:&DatabaseEnv, years:&[&str], months:&[&str], postfix:&
     // let env_rw = util::to_rw_dbenv(&env);
     // let years:Vec<_> = env.years.split_whitespace().collect();
     // let months:Vec<_> = env.months.split_whitespace().collect();
+    let postfix = if postfix.is_empty() {"old"} else {postfix};
     let rename = {
         |table: &str, _ext: &str| {
         util::add_postfix(&env_rw,table, postfix);
@@ -117,7 +132,7 @@ fn count(env_ro:&DatabaseEnv, years:&[&str], months:&[&str], postfix:&str) {
     // let months:Vec<_> = env.months.split_whitespace().collect();
     let count = {
         |table: &str, _ext: &str| {
-        let table = format!("{table}_{}", postfix);
+        let table = combine(table, postfix);
         util::count(&env_ro, &table);
     }};
     let handlers: Vec<&dyn Fn(&str, &str)> = vec![
@@ -128,4 +143,21 @@ fn count(env_ro:&DatabaseEnv, years:&[&str], months:&[&str], postfix:&str) {
     //     &rename,
     // ];
     for_each_tables(&years, &months, &handlers);
+}
+
+fn drop_table(env_rw:&DatabaseEnv, table:&str) {
+    util::drop(&env_rw,table);
+}
+
+fn combine(table:&str, postfix:&str)->String {
+    let join = if postfix.is_empty() {""} else {"_"};
+    let mut ret = String::with_capacity(table.len()+join.len()+postfix.len());
+    ret.push_str(table);
+    ret.push_str(join);
+    ret.push_str(postfix);
+    ret
+}
+
+fn help() {
+    eprintln!(r"migrate copy|take-to-posfix|dump|zip|remove-postfix|count cfg <postfix>");
 }

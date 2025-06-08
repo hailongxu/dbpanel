@@ -1,6 +1,7 @@
 use std::{
     fmt::Debug, io::{BufRead as _, BufReader}, process::{Command, Stdio}
 };
+use std::io::Write;
 use std::process::ExitStatus;
 
 
@@ -24,7 +25,7 @@ mod cfg;
 pub fn load_env<T>(cfg:Option<String>) -> T
 where T: serde::de::DeserializeOwned+ Debug,
 {
-    // let cfg = std::env::args().nth(2);
+    println!("-------- {cfg:?} --------");
     let cfg = cfg::get_cfg(cfg);
     println!("Loading configuration from: {:?}", cfg);
     let content = std::fs::read_to_string(&cfg)
@@ -46,6 +47,19 @@ pub fn for_each_tables(years: &[&str], months: &[&str], handles: &[&dyn Fn(&str,
             }
         }
     }
+}
+
+pub fn drop(dbw:&DatabaseEnv, table:&str)->ExitStatus {
+    let sql = format!("DROP TABLE {table};");
+    print!("You will drop table [{table}]?, input DROP to confirm: ");
+    std::io::stdout().flush().unwrap();
+    let mut input = String::new();
+    std::io::stdin()
+        .read_line(&mut input)
+        .expect("read input failly");
+    let input = input.trim_end();
+    assert_eq!(input,"DROP");
+    dbw.exe_sql(&sql)
 }
 
 pub fn copy(dbw:&DatabaseEnv, table:&str, table_new:&str)->ExitStatus {
@@ -106,7 +120,6 @@ pub struct DumpEnv {
     database: String,
     pub years: String,
     pub months: String,
-    pub postfix: String,
     pub basedir: String,
 }
 
