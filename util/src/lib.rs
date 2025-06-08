@@ -9,22 +9,23 @@ pub const NAMES:[&str; 1] = [
 ];
 
 mod cfg;
-pub fn load_dump_env()->DumpEnv {
-    load_env::<DumpEnv>()
-}
+// pub fn load_dump_env()->DumpEnv {
+//     load_env::<DumpEnv>()
+// }
 
-pub fn load_database_env()->DatabaseEnv {
-    load_env::<DatabaseEnv>()
-}
+// pub fn load_database_env()->DatabaseEnv {
+//     load_env::<DatabaseEnv>()
+// }
 
-pub fn load_zip_env()->ZipEnv {
-    load_env::<ZipEnv>()
-}
+// pub fn load_zip_env()->ZipEnv {
+//     load_env::<ZipEnv>()
+// }
 
-pub fn load_env<T>() -> T
+pub fn load_env<T>(cfg:Option<String>) -> T
 where T: serde::de::DeserializeOwned+ Debug,
 {
-    let cfg = cfg::get_cfg();
+    // let cfg = std::env::args().nth(2);
+    let cfg = cfg::get_cfg(cfg);
     println!("Loading configuration from: {:?}", cfg);
     let content = std::fs::read_to_string(&cfg)
         .expect("Failed to read configuration file");
@@ -47,15 +48,15 @@ pub fn for_each_tables(years: &[&str], months: &[&str], handles: &[&dyn Fn(&str,
     }
 }
 
-pub fn copy(dbe:&DatabaseEnv, table:&str, table_new:&str)->ExitStatus {
+pub fn copy(dbw:&DatabaseEnv, table:&str, table_new:&str)->ExitStatus {
     //let create_struct_sql = format!("CREATE TABLE IF NOT EXISTS {table_new} like {table}");
     let create_struct_sql = format!("CREATE TABLE {table_new} like {table}");
-    let status = dbe.exe_sql(&create_struct_sql);
+    let status = dbw.exe_sql(&create_struct_sql);
     if !status.success() {
         return status;
     }
     let insert_data_sql = format!("insert into {table_new} SELECT * FROM {table}");
-    dbe.exe_sql(&insert_data_sql)
+    dbw.exe_sql(&insert_data_sql)
 }
 
 pub fn create_empty(dbe:&DatabaseEnv, src_table:&str, empty_table:&str)->ExitStatus {
