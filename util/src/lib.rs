@@ -76,6 +76,10 @@ pub fn add_postfix(dbe:&DatabaseEnv, table:&str, postfix:&str)->ExitStatus {
     rename(dbe, &[(&src, &dst)])
 }
 
+pub fn count(dbe:&DatabaseEnv, table:&str)->ExitStatus {
+    let sql = format!("select count(*) from {table}");
+    dbe.exe_sql(&sql)
+}
 
 // pub fn restore_old(dbe:&DatabaseEnv, table:&str)->ExitStatus {
 //     let old = format!("{table}_old");
