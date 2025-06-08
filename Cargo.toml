@@ -1,9 +1,11 @@
-# [package]
-# name = "eximport"
-# version = "0.1.0"
-# edition = "2024"
-
-# [dependencies]
 
 [workspace]
-members = [ "copy","util"]
+members = [
+    "util",
+    "copy",
+    "dump",
+    "ziptab",
+]
+
+
+# [dependencies]

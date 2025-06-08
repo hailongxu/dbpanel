@@ -1,22 +1,20 @@
-use std::env::args;
-use util::{dump_out, for_each_tables, rename, NAMES};
+use util::{for_each_tables, rename};
 
 
 fn main() {
-    let args:Vec<_> = args().collect();
-    let passwd_readonly = args[1].as_str();
-    let passwd_optimizer = args[2].as_str();
-    let years = args[3].as_str();
-    let months = args[4].as_str();
-    let years:Vec<_> = years.split_whitespace().collect();
-    let months:Vec<_> = months.split_whitespace().collect();
+    let env = util::load_dump_env();
+    println!("Dumping tables for database: {:?}", env);
+    let env_ro = util::to_ro_dbenv(&env);
+    let env_rw = util::to_rw_dbenv(&env);
+    let years:Vec<_> = env.years.split_whitespace().collect();
+    let months:Vec<_> = env.months.split_whitespace().collect();
     let dump_out = {
-        |table: &str, ext: &str| {
-        dump_out(passwd_readonly, table, ext);
+        |table: &str, _ext: &str| {
+        env_ro.dump_out(table);
     }};
     let rename = {
-        |table: &str, ext: &str| {
-        rename(passwd_optimizer, table, ext);
+        |table: &str, _ext: &str| {
+        rename(&env_rw, table);
     }};
     let handlers: Vec<&dyn Fn(&str, &str)> = vec![
         &dump_out,

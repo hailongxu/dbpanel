@@ -1,12 +1,38 @@
-use std::{io::{BufRead as _, BufReader}, process::{Command, Stdio}};
-
+use std::{
+    fmt::Debug, io::{BufRead as _, BufReader}, process::{Command, Stdio}
+};
+use std::process::ExitStatus;
 
 
 pub const NAMES:[&str; 1] = [
     "tablename",
 ];
 
+mod cfg;
+pub fn load_dump_env()->DumpEnv {
+    load_env::<DumpEnv>()
+}
 
+pub fn load_database_env()->DatabaseEnv {
+    load_env::<DatabaseEnv>()
+}
+
+pub fn load_zip_env()->ZipEnv {
+    load_env::<ZipEnv>()
+}
+
+pub fn load_env<T>() -> T
+where T: serde::de::DeserializeOwned+ Debug,
+{
+    let cfg = cfg::get_cfg();
+    println!("Loading configuration from: {:?}", cfg);
+    let content = std::fs::read_to_string(&cfg)
+        .expect("Failed to read configuration file");
+    let cfg = toml::from_str::<T>(&content)
+        .expect("Failed to parse configuration file");
+    println!("Loaded configuration: {:?}", cfg);
+    cfg
+}
 
 pub fn for_each_tables(years: &[&str], months: &[&str], handles: &[&dyn Fn(&str, &str)]) {
     for name in NAMES {
@@ -21,127 +47,166 @@ pub fn for_each_tables(years: &[&str], months: &[&str], handles: &[&dyn Fn(&str,
     }
 }
 
-fn get_exe_dir()->String {
-    std::env::current_exe()
-        .unwrap().parent()
-        .unwrap().to_str()
-        .unwrap().to_string()
-}
-
-pub fn dump_out(passwd:&str, table:&str,_:&str) {
-
-    let passwd = format!("-p{}",passwd);
-    let mut child = Command::new("mysqldump")
-        .arg("-hxxx.xxx")
-        .arg("-uuser")
-        .arg(passwd)
-        .arg("databasename")
-        .arg(table)
-        .stdout(Stdio::piped())
-        .spawn()
-        .expect("failed to execute process");
-    // output.status;
-
-    let stdout = child.stdout.take().expect("stdout should be available");
-    let reader = BufReader::new(stdout);
-    // reader.read_line()
-    for line in reader.lines() {
-        let line = line.unwrap();
-        println!("{}", line);
+pub fn copy(dbe:&DatabaseEnv, table:&str, table_new:&str)->ExitStatus {
+    //let create_struct_sql = format!("CREATE TABLE IF NOT EXISTS {table_new} like {table}");
+    let create_struct_sql = format!("CREATE TABLE {table_new} like {table}");
+    let status = dbe.exe_sql(&create_struct_sql);
+    if !status.success() {
+        return status;
     }
-}
-
-pub fn copy(passwd:&str, table:&str, table_new:&str) {
-    let passwd = format!("-p{}",passwd);
-    // let table = format!("{}{}{}",name,year,month);
-
-    let copy_sql = format!("CREATE TABLE {table_new} AS SELECT * FROM {table}");
-    let sql= copy_sql;
-    
-    let mut child = Command::new("mysql")
-        .arg("-hxx.xx")
-        .arg("-uuser")
-        .arg(passwd)
-        .arg("-Ddatabasename")
-        .arg("-e")
-        .arg(sql)
-        .stdout(Stdio::piped())
-        .spawn()
-        .expect("failed to execute process");
-    // output.status;
-
-    // let aa = Command::get_program(&child);
-    let stdout = child.stdout.take().expect("stdout should be available");
-    let reader = BufReader::new(stdout);
-    // reader.read_line()
-    for line in reader.lines() {
-        let line = line.unwrap();
-        println!("{}", line);
-    }
+    let insert_data_sql = format!("insert into {table_new} SELECT * FROM {table}");
+    dbe.exe_sql(&insert_data_sql)
 }
 
 
-
-pub fn rename(passwd:&str, table:&str, _:&str) {
-    let passwd = format!("-p{}",passwd);
-    // let table = format!("{}{}{}",name,year,month);
-
+pub fn rename(dbe:&DatabaseEnv, table:&str)->ExitStatus {
     let sql_create_empty=format!("create table {table}_empty like {table}");
     let sql_rename_cur_to_old=format!("alter table {table} rename to {table}_old");
     let sql_rename_empty_to_cur=format!("alter table {table}_empty rename to {table}");
-    let sql_drop=format!("drop table {table}_old");
-    let sql=format!("\"{}; {}; {}; {};\"",sql_create_empty, sql_rename_cur_to_old, sql_rename_empty_to_cur, sql_drop);
+    let sql=format!("{}; {}; {};",sql_create_empty, sql_rename_cur_to_old, sql_rename_empty_to_cur);
+    dbe.exe_sql(&sql)
+}
 
-    let mut child = Command::new("mysql")
-        .arg("-hxxx.xxx")
-        .arg("-uuserrw")
-        .arg(passwd)
-        .arg("-Ddatabasename")
-        .arg("-e")
-        .arg(sql)
-        .stdout(Stdio::piped())
-        .spawn()
-        .expect("failed to execute process");
-    // output.status;
+#[derive(Debug, serde::Deserialize)]
+pub struct DumpEnv {
+    url: String,
+    user_ro: String,
+    user_rw: String,
+    passwd_ro: String,
+    passwd_rw: String,
+    database: String,
+    pub years: String,
+    pub months: String,
+    basedir: String,
+}
 
-    // let aa = Command::get_program(&child);
-    let stdout = child.stdout.take().expect("stdout should be available");
-    let reader = BufReader::new(stdout);
-    // reader.read_line()
-    for line in reader.lines() {
-        let line = line.unwrap();
-        println!("{}", line);
+pub fn to_ro_dbenv(env:&DumpEnv)->DatabaseEnv {
+    DatabaseEnv {
+        url: env.url.clone(),
+        user: env.user_ro.clone(),
+        passwd: env.passwd_ro.clone(),
+        database: env.database.clone(),
     }
 }
 
-pub fn for_each_name(basedir:&str,years: &[&str]) {
+pub fn to_rw_dbenv(env:&DumpEnv)->DatabaseEnv {
+    DatabaseEnv {
+        url: env.url.clone(),
+        user: env.user_rw.clone(),
+        passwd: env.passwd_rw.clone(),
+        database: env.database.clone(),
+    }
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct ZipEnv {
+    pub basedir: String,
+    pub years: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct DatabaseEnv {
+    url: String,
+    user: String,
+    passwd: String,
+    database: String,
+}
+
+impl DatabaseEnv {
+    pub fn new()->Self {
+        Self {
+            url: String::new(),
+            user: String::new(),
+            passwd: String::new(),
+            database: String::new(),
+        }
+    }
+
+    pub fn from(url:&str,user:&str,passwd:&str,db:&str)->Self {
+        Self {
+            url: url.into(),
+            user: user.into(),
+            passwd: passwd.into(),
+            database: db.into(),
+        }
+    }
+
+    pub fn init(&mut self, url:&str,user:&str,passwd:&str,db:&str) {
+        self.url.push_str(url);
+        self.user.push_str(user);
+        self.passwd.push_str(passwd);
+        self.database.push_str(db);
+    }
+
+    pub fn dump_out(&self, table:&str)->ExitStatus {
+        let url = &self.url;
+        let urlp = format!("-h{url}");
+        let user = &self.user;
+        let userp = format!("-u{}",user);
+        let passwd = &self.passwd;
+        let passwdp = format!("-p{}",passwd);
+        let database = &self.database;
+        let table_out = format!("{table}.sql");
+        Command::new("mysqldump")
+            .arg(urlp)
+            .arg(userp)
+            .arg(passwdp)
+            .arg(database)
+            .arg(table)
+            .arg(">")
+            .arg(table_out)
+            .status()
+            .expect("failed to execute process")
+    }
+
+    pub fn exe_sql(&self, sql:&str)->ExitStatus {
+        let url = &self.url;
+        let urlp = format!("-h{url}");
+        let user = &self.user;
+        let userp = format!("-u{}",user);
+        let passwd = &self.passwd;
+        let passwdp = format!("-p{}",passwd);
+        let database = &self.database;
+        let databasep  = format!("-D{}",database);
+        let sqlp = format!("-e\"{sql}\"");
+        println!("{sql}");
+        let status = Command::new("mysql")
+            .arg(urlp)
+            .arg(userp)
+            .arg(passwdp)
+            .arg(databasep)
+            .arg(sqlp)
+            //.stdout(Stdio::piped())
+            .status()
+            .expect("failed to execute process");
+    
+        println!("process finished with: {status}");
+        status
+    }
+}
+
+pub fn for_each_name(basedir:&str,years: &[&str], handle: impl Fn(&str, &str, &str) -> ExitStatus) {
     for year in years {
         for name in NAMES {
-            zip(basedir,year, name);
+            assert!(handle(basedir,year, name).success());
         }
     }
 }
 
-pub fn zip(basedir:&str,year:&str,table:&str) {
+pub fn zip(basedir:&str,year:&str,name:&str)->ExitStatus {
     let dumpdir=format!("{basedir}/{year}");
-    let zipfile=format!("{dumpdir}/{table}.zip");
-    let zipsrc = format!("{dumpdir}/{table}*.sql");
+    let zipfile=format!("{dumpdir}/{name}.zip");
+    let zipsrc = format!("{dumpdir}/{name}*.sql");
     // #zip $dumpdir/$table.zip "$dumpdir/?" 
     // zip $dumpdir/$zipfile.zip "$dumpdir/${zipfile}*.sql"
-    let mut child = Command::new("zip")
+    let status = Command::new("zip")
         .arg(zipfile)
         .arg(zipsrc)
-        .stdout(Stdio::piped())
-        .spawn()
+        // .stdout(Stdio::piped())
+        .status()
         .expect("failed to execute process");
-    // output.status;
-
-    let stdout = child.stdout.take().expect("stdout should be available");
-    let reader = BufReader::new(stdout);
-    for line in reader.lines() {
-        let line = line.unwrap();
-        println!("{}", line);
-    }
+    println!("process finished with: {status}");
+    status
 }
 
 
@@ -155,3 +220,4 @@ mod tests {
         assert_eq!(result, 4);
     }
 }
+

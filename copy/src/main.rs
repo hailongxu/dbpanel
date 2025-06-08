@@ -1,9 +1,9 @@
 use std::env::args;
 
 fn main() {
-    let args:Vec<_> = args().collect();
-    let passwd_optimizer = args[1].as_str();
-    let table = args[2].as_str();
-    let table_new = args[3].as_str();
-    util::copy(passwd_optimizer, table, table_new);
+    let env = load_env();
+    let table = "tablename";
+    let table_new = &format!("{table}_new");
+    println!("----------{table}, {table_new}");
+    copy(&env, table, table_new);
 }
