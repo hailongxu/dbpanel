@@ -3,24 +3,17 @@ use std::{
 };
 use std::io::Write;
 use std::process::ExitStatus;
+use std::process::Output;
 
-
+//pub const DEFAULT_POSTFIX:&str = "_old";
 pub const NAMES:[&str; 1] = [
     "tablename",
 ];
 
 mod cfg;
-// pub fn load_dump_env()->DumpEnv {
-//     load_env::<DumpEnv>()
-// }
-
-// pub fn load_database_env()->DatabaseEnv {
-//     load_env::<DatabaseEnv>()
-// }
-
-// pub fn load_zip_env()->ZipEnv {
-//     load_env::<ZipEnv>()
-// }
+pub fn load_migrate_env(cfg:Option<String>)->MigateEnv {
+    load_env::<MigateEnv>(cfg)
+}
 
 pub fn load_env<T>(cfg:Option<String>) -> T
 where T: serde::de::DeserializeOwned+ Debug,
@@ -32,7 +25,7 @@ where T: serde::de::DeserializeOwned+ Debug,
         .expect("Failed to read configuration file");
     let cfg = toml::from_str::<T>(&content)
         .expect("Failed to parse configuration file");
-    println!("Loaded configuration: {:?}", cfg);
+    println!("Loaded configuration.");
     cfg
 }
 
@@ -42,7 +35,20 @@ pub fn for_each_tables(years: &[&str], months: &[&str], handles: &[&dyn Fn(&str,
             for month in months {
                 for handle in handles {
                     let table = format!("{}{}{}", name, year, month);
-                    handle(&table,"");
+                    handle(&table,year);
+                }
+            }
+        }
+    }
+}
+
+pub fn for_each_tables_mut(years: &[&str], months: &[&str], handles: &mut[&mut dyn FnMut(&str, &str)]) {
+    for name in NAMES {
+        for year in years {
+            for month in months {
+                for handle in &mut *handles {
+                    let table = format!("{}{}{}", name, year, month);
+                    handle(&table,year);
                 }
             }
         }
@@ -51,7 +57,7 @@ pub fn for_each_tables(years: &[&str], months: &[&str], handles: &[&dyn Fn(&str,
 
 pub fn drop(dbw:&DatabaseEnv, table:&str)->ExitStatus {
     let sql = format!("DROP TABLE {table};");
-    print!("You will drop table [{table}]?, input DROP to confirm: ");
+    print!("You will \x1b[31mDROP\x1b[0m TABLE [\x1b[31m{table}\x1b[0m]?, input \x1b[31mDROP\x1b[0m to confirm: ");
     std::io::stdout().flush().unwrap();
     let mut input = String::new();
     std::io::stdin()
@@ -63,7 +69,6 @@ pub fn drop(dbw:&DatabaseEnv, table:&str)->ExitStatus {
 }
 
 pub fn copy(dbw:&DatabaseEnv, table:&str, table_new:&str)->ExitStatus {
-    //let create_struct_sql = format!("CREATE TABLE IF NOT EXISTS {table_new} like {table}");
     let create_struct_sql = format!("CREATE TABLE {table_new} like {table}");
     let status = dbw.exe_sql(&create_struct_sql);
     if !status.success() {
@@ -87,19 +92,17 @@ pub fn remove_postfix(dbe:&DatabaseEnv, table:&str, postfix:&str)->ExitStatus {
 
 pub fn add_postfix(dbe:&DatabaseEnv, table:&str, postfix:&str)->ExitStatus {
     let src = table;
-    let dst = format!("{table}_{postfix}");
+    let dst = format!("{table}{postfix}");
     rename(dbe, &[(&src, &dst)])
 }
 
-pub fn count(dbe:&DatabaseEnv, table:&str)->ExitStatus {
+pub fn count(dbe:&DatabaseEnv, table:&str)->(ExitStatus,String) {
     let sql = format!("select count(*) from {table}");
-    dbe.exe_sql(&sql)
+    let output = dbe.exe_sql_with_output(&sql);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let status = output.status;
+    (status,stdout.to_string())
 }
-
-// pub fn restore_old(dbe:&DatabaseEnv, table:&str)->ExitStatus {
-//     let old = format!("{table}_old");
-//     rename(dbe, &[(&old,table)])
-// }
 
 pub fn rename(dbe:&DatabaseEnv, src_dst:&[(&str,&str)])->ExitStatus {
     let sql = src_dst.iter()
@@ -111,7 +114,7 @@ pub fn rename(dbe:&DatabaseEnv, src_dst:&[(&str,&str)])->ExitStatus {
 
 
 #[derive(Debug, serde::Deserialize)]
-pub struct DumpEnv {
+pub struct MigateEnv {
     url: String,
     user_ro: String,
     user_rw: String,
@@ -123,7 +126,7 @@ pub struct DumpEnv {
     pub basedir: String,
 }
 
-pub fn to_ro_dbenv(env:&DumpEnv)->DatabaseEnv {
+pub fn to_ro_dbenv(env:&MigateEnv)->DatabaseEnv {
     DatabaseEnv {
         url: env.url.clone(),
         user: env.user_ro.clone(),
@@ -132,7 +135,7 @@ pub fn to_ro_dbenv(env:&DumpEnv)->DatabaseEnv {
     }
 }
 
-pub fn to_rw_dbenv(env:&DumpEnv)->DatabaseEnv {
+pub fn to_rw_dbenv(env:&MigateEnv)->DatabaseEnv {
     DatabaseEnv {
         url: env.url.clone(),
         user: env.user_rw.clone(),
@@ -152,7 +155,7 @@ pub struct DatabaseEnv {
     url: String,
     user: String,
     passwd: String,
-    database: String,
+    pub database: String,
 }
 
 impl DatabaseEnv {
@@ -181,7 +184,7 @@ impl DatabaseEnv {
         self.database.push_str(db);
     }
 
-    pub fn dump_out(&self, table:&str, basedir:&str)->ExitStatus {
+    pub fn dump_out(&self, table:&str, outdir:&str)->ExitStatus {
         let url = &self.url;
         let urlp = format!("-h{url}");
         let user = &self.user;
@@ -189,9 +192,10 @@ impl DatabaseEnv {
         let passwd = &self.passwd;
         let passwdp = format!("-p{}",passwd);
         let database = &self.database;
-        let table_out = format!("{basedir}/{table}.sql");
-        let mysqldump_cmd = format!("mysqldump {urlp} {userp} {passwdp} {database} {table} > {table_out}");
-        println!("----- {mysqldump_cmd} ------");
+        let table_out = format!("{outdir}/{table}.sql");
+        let mkoutdir = format!("mkdir -p {outdir}");
+        let mysqldump_cmd = format!("{mkoutdir}; mysqldump {urlp} {userp} {passwdp} {database} {table} > {table_out}");
+        println!("----- {database}/{table} => {outdir} ------");
         Command::new("sh")
             .arg("-c")
             .arg(mysqldump_cmd)
@@ -199,6 +203,31 @@ impl DatabaseEnv {
             .expect("failed to execute process")
     }
 
+    pub fn exe_sql_with_output(&self, sql:&str)->Output {
+        let url = &self.url;
+        let urlp = format!("-h{url}");
+        let user = &self.user;
+        let userp = format!("-u{}",user);
+        let passwd = &self.passwd;
+        let passwdp = format!("-p{}",passwd);
+        let database = &self.database;
+        let databasep  = format!("-D{}",database);
+        let sqlp = format!("-e'{sql}'");
+        println!("----- {sql} -----");
+        let passwd_set = format!("export MYSQL_PWD={passwd}");
+        let passwdp = "";
+        let mysql_cmd = format!("mysql -NB {urlp} {userp} {passwdp} {databasep} {sqlp}");
+        let passwd_unset = format!("unset MYSQL_PWD");
+        let cmd = format!("{passwd_set};{mysql_cmd};{passwd_unset};");
+        let output = Command::new("sh")
+            .arg("-c")
+            .arg(cmd)
+            .output()
+            .expect("failed to execute process");
+        
+        println!("process finished with: {}",output.status);
+        output
+    }
     pub fn exe_sql(&self, sql:&str)->ExitStatus {
         let url = &self.url;
         let urlp = format!("-h{url}");
@@ -208,17 +237,33 @@ impl DatabaseEnv {
         let passwdp = format!("-p{}",passwd);
         let database = &self.database;
         let databasep  = format!("-D{}",database);
-        let sqlp = format!("-e\"{sql}\"");
+        let sqlp = format!("-e'{sql}'");
         println!("----- {sql} -----");
-        let status = Command::new("mysql")
-            .arg(urlp)
-            .arg(userp)
-            .arg(passwdp)
-            .arg(databasep)
-            .arg(sqlp)
-            //.stdout(Stdio::piped())
+        let passwd_set = format!("export MYSQL_PWD={passwd}");
+        let passwdp = "";
+        let mysql_cmd = format!("mysql -NB {urlp} {userp} {passwdp} {databasep} {sqlp}");
+        let passwd_unset = format!("unset MYSQL_PWD");
+        let cmd = format!("{passwd_set};{mysql_cmd};{passwd_unset};");
+        let status = Command::new("sh")
+            .arg("-c")
+            .arg(cmd)
             .status()
             .expect("failed to execute process");
+        
+        // let mut status = Command::new("mysql");
+        // status
+        //     .arg(urlp)
+        //     .arg(userp)
+        //     .arg(passwdp)
+        //     .arg(databasep)
+        //     .arg(sqlp)
+        //     //.env("MYSQL_PWD",passwd)
+        //     ;
+        //  //println!("------- {status:?} -------");
+        //  let status = status
+        //     //.stdout(Stdio::piped())
+        //     .status()
+        //     .expect("failed to execute process");
     
         println!("process finished with: {status}");
         status
