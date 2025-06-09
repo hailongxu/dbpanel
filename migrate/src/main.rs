@@ -32,21 +32,29 @@ fn main() {
         "zip" => {
             zip(&env.basedir, &years);
         }
-        "remove-postfix" => {
+        "nameadd" => {
+            add_postfix(&env_rw, &years, &months, &postfix);
+        }
+        "namendel" => {
             remove_postfix(&env_rw, &years, &months, &postfix);
         }
-        "take-to-postfix" => {
+        "take" => {
             take_to_postfix(&env_rw, &years, &months, &postfix);
         }
         "count" => {
             count(&env_ro, &env.basedir, &years, &months, &postfix);
         }
+        "empty" => {
+            empty(&env_ro, &env.basedir, &years, &months, &postfix);
+        }
         "drop" => {
             drop_table(&env_rw, &postfix);
         }
+        "drop-empty" => {
+            drop_empty_table(&env_rw, &years, &months, &postfix);
+        }
         _ => {
             eprintln!("Unknown command: {cmd}");
-            eprintln!("Available commands: dump");
             std::process::exit(2);
         }
     }
@@ -83,6 +91,21 @@ fn copy(env_rw:&DatabaseEnv, years:&[&str], months:&[&str], postfix:&str) {
 
 fn zip(basedir:&str, years:&[&str]) {
     for_each_name(&basedir,&years,util::zip);
+}
+
+fn add_postfix(env_rw:&DatabaseEnv, years:&[&str], months:&[&str], postfix:&str) {
+    let rename = {
+        |table: &str, _ext: &str| {
+        util::add_postfix(&env_rw, &table, postfix);
+    }};
+    let handlers: Vec<&dyn Fn(&str, &str)> = vec![
+        &rename,
+    ];
+    // why does work when we use static [] ?????
+    // let handlers = [
+    //     &rename,
+    // ];
+    for_each_tables(&years, &months, &handlers);
 }
 
 fn remove_postfix(env_rw:&DatabaseEnv, years:&[&str], months:&[&str], postfix:&str) {
@@ -124,6 +147,38 @@ fn take_to_postfix(env_rw:&DatabaseEnv, years:&[&str], months:&[&str], postfix:&
     util::for_each_tables(&years, &months, &handlers);
 }
 
+fn empty(env_ro:&DatabaseEnv, basedir:&str,years:&[&str], months:&[&str], postfix:&str) {
+    let countpath = format!("{basedir}/{}-empty.txt",env_ro.database);
+    eprintln!("----- empty file is at: {countpath} -----");
+    let file = File::create(countpath).unwrap();
+    let mut writer = BufWriter::new(file);
+    let mut content = Vec::new();
+    let mut handle  = {
+        |table: &str, _ext: &str| {
+        let table = combine(table, postfix);
+        let is_empty = util::is_empty(&env_ro, &table);
+        let out = if is_empty {b"1"} else {b"0"};
+        println!("{table} : {is_empty}");
+        let content_len = table.as_bytes().len() + 1 + out.len() + 1;
+        content.clear();
+        content.reserve(content_len);
+        content.extend_from_slice(table.as_bytes());
+        content.extend_from_slice(b" ");
+        content.extend_from_slice(out);
+        content.extend_from_slice(b"\n");
+        writer.write_all(&content).unwrap();
+    }};
+    let mut handlers: Vec<&mut dyn FnMut(&str, &str)> = vec![
+        &mut handle,
+    ];
+    // why does work when we use static [] ?????
+    // let handlers = [
+    //     &rename,
+    // ];
+    for_each_tables_mut(&years, &months, &mut handlers);
+    writer.flush().unwrap();
+}
+
 fn count(env_ro:&DatabaseEnv, basedir:&str,years:&[&str], months:&[&str], postfix:&str) {
     let countpath = format!("{basedir}/{}-count.txt",env_ro.database);
     eprintln!("----- count file is at: {countpath} -----");
@@ -157,7 +212,26 @@ fn count(env_ro:&DatabaseEnv, basedir:&str,years:&[&str], months:&[&str], postfi
 }
 
 fn drop_table(env_rw:&DatabaseEnv, table:&str) {
-    util::drop(&env_rw,table);
+    util::drop_with_confirm(&env_rw,table);
+}
+
+fn drop_empty_table(env_rw:&DatabaseEnv, years:&[&str], months:&[&str], postfix:&str) {
+    let handle = {
+        |table: &str, _ext: &str| {
+        let table = combine(table, postfix);
+        if util::is_empty(&env_rw,&table) {
+            println!("----- {table} is empty, and drop.");
+            util::drop_without_confirm(&env_rw,&table);
+        }
+    }};
+    let handlers: Vec<&dyn Fn(&str, &str)> = vec![
+        &handle,
+    ];
+    // why does work when we use static [] ?????
+    // let handlers = [
+    //     &rename,
+    // ];
+    for_each_tables(&years, &months, &handlers);
 }
 
 fn combine(table:&str, postfix:&str)->String {
@@ -168,5 +242,5 @@ fn combine(table:&str, postfix:&str)->String {
 }
 
 fn help() {
-    eprintln!(r"migrate copy|take-to-postfix|dump|zip|remove-postfix|count cfg <postfix>");
+    eprintln!(r"migrate copy|take|dump|zip|nameadd|namendel|count|empty|drop-empty cfg <postfix>");
 }
