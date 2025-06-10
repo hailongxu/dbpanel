@@ -148,7 +148,7 @@ fn take_to_postfix(env_rw:&DatabaseEnv, years:&[&str], months:&[&str], postfix:&
 }
 
 fn empty(env_ro:&DatabaseEnv, basedir:&str,years:&[&str], months:&[&str], postfix:&str) {
-    let countpath = format!("{basedir}/{}-empty.txt",env_ro.database);
+    let countpath = format!("{basedir}/{}-empty{postfix}.txt",env_ro.database);
     eprintln!("----- empty file is at: {countpath} -----");
     let file = File::create(countpath).unwrap();
     let mut writer = BufWriter::new(file);
@@ -180,7 +180,7 @@ fn empty(env_ro:&DatabaseEnv, basedir:&str,years:&[&str], months:&[&str], postfi
 }
 
 fn count(env_ro:&DatabaseEnv, basedir:&str,years:&[&str], months:&[&str], postfix:&str) {
-    let countpath = format!("{basedir}/{}-count.txt",env_ro.database);
+    let countpath = format!("{basedir}/{}-count{postfix}.txt",env_ro.database);
     eprintln!("----- count file is at: {countpath} -----");
     let file = File::create(countpath).unwrap();
     let mut writer = BufWriter::new(file);
