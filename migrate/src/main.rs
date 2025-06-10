@@ -1,6 +1,6 @@
 use std::env::args;
 use util::TableRule;
-use util::{self, for_each_name, for_each_tables, for_each_tables_mut, DatabaseEnv};
+use util::{self, DatabaseEnv};
 //use util::DEFAULT_POSTFIX;
 use std::fs::File;
 use std::io::BufWriter;
@@ -16,14 +16,10 @@ fn main() {
     let cfg = args.next();
     let postfix = args.next().unwrap_or_default();
 
-    let env = util::load_migrate_env(cfg);
+    let env = util::load_panel_env(cfg);
     let env_ro = env.to_ro_dbenv();
     let env_rw = env.to_rw_dbenv();
     let rule = env.table_rule();
-
-    let years:Vec<_> = env.years.split_whitespace().collect();
-    let months:Vec<_> = env.months.split_whitespace().collect();
-
 
     match cmd.as_str() {
         "dumpout" => {
@@ -71,12 +67,12 @@ fn dumpout(env:&DatabaseEnv, rule:&TableRule, postfix:&str, basedir:&str) {
         |table: &str, year: &str| {
         let table = combine(table, postfix);
         let outdir = format!("{basedir}/{year}");
-        env.dump_out(&table,&outdir);
+        util::dump_out(env,&table,&outdir);
     }};
     let handlers: Vec<&dyn Fn(&str, &str)> = vec![
         &dump_out,
     ];
-    for_each_tables(rule, &handlers);
+    rule.for_each_tables( &handlers);
 }
 
 fn dumpin(env:&DatabaseEnv, rule:&TableRule, postfix:&str, basedir:&str) {
@@ -84,12 +80,12 @@ fn dumpin(env:&DatabaseEnv, rule:&TableRule, postfix:&str, basedir:&str) {
         |table: &str, year: &str| {
         let table = combine(table, postfix);
         let sqlfile = format!("{basedir}/{year}/{table}.sql");
-        env.dump_in(&sqlfile);
+        util::dump_in(env,&sqlfile);
     }};
     let handlers: Vec<&dyn Fn(&str, &str)> = vec![
         &dump_out,
     ];
-    for_each_tables(rule, &handlers);
+    rule.for_each_tables(&handlers);
 }
 
 fn copy(env_rw:&DatabaseEnv, rule:&TableRule, postfix:&str) {
@@ -105,11 +101,11 @@ fn copy(env_rw:&DatabaseEnv, rule:&TableRule, postfix:&str) {
     // let handlers = [
     //     &rename,
     // ];
-    for_each_tables(rule, &handlers);
+    rule.for_each_tables(&handlers);
 }
 
 fn zip(basedir:&str, rule:&TableRule) {
-    for_each_name(&basedir,rule,util::zip);
+    rule.for_each_name(&basedir,util::zip);
 }
 
 fn add_postfix(env_rw:&DatabaseEnv, rule:&TableRule, postfix:&str) {
@@ -124,7 +120,7 @@ fn add_postfix(env_rw:&DatabaseEnv, rule:&TableRule, postfix:&str) {
     // let handlers = [
     //     &rename,
     // ];
-    for_each_tables(rule, &handlers);
+    rule.for_each_tables(&handlers);
 }
 
 fn remove_postfix(env_rw:&DatabaseEnv, rule:&TableRule, postfix:&str) {
@@ -140,7 +136,7 @@ fn remove_postfix(env_rw:&DatabaseEnv, rule:&TableRule, postfix:&str) {
     // let handlers = [
     //     &rename,
     // ];
-    for_each_tables(rule, &handlers);
+    rule.for_each_tables(&handlers);
 }
 
 fn take_to_postfix(env_rw:&DatabaseEnv, rule:&TableRule, postfix:&str) {
@@ -163,7 +159,7 @@ fn take_to_postfix(env_rw:&DatabaseEnv, rule:&TableRule, postfix:&str) {
     // let handlers = [
     //     &rename,
     // ];
-    util::for_each_tables(rule, &handlers);
+    rule.for_each_tables(&handlers);
 }
 
 fn empty(env_ro:&DatabaseEnv, basedir:&str,rule:&TableRule, postfix:&str) {
@@ -194,7 +190,7 @@ fn empty(env_ro:&DatabaseEnv, basedir:&str,rule:&TableRule, postfix:&str) {
     // let handlers = [
     //     &rename,
     // ];
-    for_each_tables_mut(rule, &mut handlers);
+    rule.for_each_tables_mut(&mut handlers);
     writer.flush().unwrap();
 }
 
@@ -226,7 +222,7 @@ fn count(env_ro:&DatabaseEnv, basedir:&str,rule:&TableRule, postfix:&str) {
     // let handlers = [
     //     &rename,
     // ];
-    for_each_tables_mut(rule, &mut handlers);
+    rule.for_each_tables_mut(&mut handlers);
     writer.flush().unwrap();
 }
 
@@ -250,7 +246,7 @@ fn drop_empty_table(env_rw:&DatabaseEnv, rule:&TableRule, postfix:&str) {
     // let handlers = [
     //     &rename,
     // ];
-    for_each_tables(rule, &handlers);
+    rule.for_each_tables(&handlers);
 }
 
 fn combine(table:&str, postfix:&str)->String {
