@@ -1,7 +1,6 @@
 use std::env::args;
 use util::TableRule;
 use util::{self, DatabaseEnv};
-//use util::DEFAULT_POSTFIX;
 use std::fs::File;
 use std::io::BufWriter;
 use std::io::Write;
@@ -55,6 +54,9 @@ fn main() {
         "drop-empty" => {
             drop_empty_table(&env_rw, &rule, &postfix);
         }
+        "batch-drop" => {
+            batch_drop_table(&env_rw, &rule, &postfix);
+        }
         _ => {
             eprintln!("Unknown command: {cmd}");
             std::process::exit(2);
@@ -64,12 +66,12 @@ fn main() {
 
 fn dumpout(env:&DatabaseEnv, rule:&TableRule, postfix:&str, basedir:&str) {
     let dump_out = {
-        |table: &str, year: &str| {
+        |table: &str, year: &str, _i| {
         let table = combine(table, postfix);
         let outdir = format!("{basedir}/{year}");
         util::dump_out(env,&table,&outdir);
     }};
-    let handlers: Vec<&dyn Fn(&str, &str)> = vec![
+    let handlers: Vec<&dyn Fn(&str, &str, usize)> = vec![
         &dump_out,
     ];
     rule.for_each_tables( &handlers);
@@ -77,12 +79,12 @@ fn dumpout(env:&DatabaseEnv, rule:&TableRule, postfix:&str, basedir:&str) {
 
 fn dumpin(env:&DatabaseEnv, rule:&TableRule, postfix:&str, basedir:&str) {
     let dump_out = {
-        |table: &str, year: &str| {
+        |table: &str, year: &str, _i| {
         let table = combine(table, postfix);
         let sqlfile = format!("{basedir}/{year}/{table}.sql");
         util::dump_in(env,&sqlfile);
     }};
-    let handlers: Vec<&dyn Fn(&str, &str)> = vec![
+    let handlers: Vec<&dyn Fn(&str, &str, usize)> = vec![
         &dump_out,
     ];
     rule.for_each_tables(&handlers);
@@ -90,11 +92,12 @@ fn dumpin(env:&DatabaseEnv, rule:&TableRule, postfix:&str, basedir:&str) {
 
 fn copy(env_rw:&DatabaseEnv, rule:&TableRule, postfix:&str) {
     let copy = {
-        |table: &str, _ext: &str| {
+        // if we remove the type &str, it will not work, grammer error WHY ???
+        |table: &str, _year: &str, _i| {
         let table_new = combine(table, postfix);
         util::copy(&env_rw, &table, &table_new);
     }};
-    let handlers: Vec<&dyn Fn(&str, &str)> = vec![
+    let handlers: Vec<&dyn Fn(&str, &str, usize)> = vec![
         &copy,
     ];
     // why does work when we use static [] ?????
@@ -110,10 +113,10 @@ fn zip(basedir:&str, rule:&TableRule) {
 
 fn add_postfix(env_rw:&DatabaseEnv, rule:&TableRule, postfix:&str) {
     let rename = {
-        |table: &str, _ext: &str| {
+        |table: &str, _year: &str,_i| {
         util::add_postfix(&env_rw, &table, postfix);
     }};
-    let handlers: Vec<&dyn Fn(&str, &str)> = vec![
+    let handlers: Vec<&dyn Fn(&str, &str, usize)> = vec![
         &rename,
     ];
     // why does work when we use static [] ?????
@@ -125,11 +128,11 @@ fn add_postfix(env_rw:&DatabaseEnv, rule:&TableRule, postfix:&str) {
 
 fn remove_postfix(env_rw:&DatabaseEnv, rule:&TableRule, postfix:&str) {
     let rename = {
-        |table: &str, _ext: &str| {
+        |table: &str, _year: &str, _i| {
         let table = combine(table, postfix);
         util::remove_postfix(&env_rw, &table,postfix);
     }};
-    let handlers: Vec<&dyn Fn(&str, &str)> = vec![
+    let handlers: Vec<&dyn Fn(&str, &str, usize)> = vec![
         &rename,
     ];
     // why does work when we use static [] ?????
@@ -140,18 +143,17 @@ fn remove_postfix(env_rw:&DatabaseEnv, rule:&TableRule, postfix:&str) {
 }
 
 fn take_to_postfix(env_rw:&DatabaseEnv, rule:&TableRule, postfix:&str) {
-    // let postfix = if postfix.is_empty() {DEFAULT_POSTFIX} else {postfix};
     let rename = {
-        |table: &str, _ext: &str| {
+        |table: &str, _year: &str, _i| {
         util::add_postfix(&env_rw,table, postfix);
     }};
     let create = {
-        |table: &str, _ext: &str| {
+        |table: &str, _year: &str, _i| {
         let src_table = &combine(table, postfix);
         let empty_table = &table;
         util::create_empty(&env_rw, src_table, empty_table);
     }};
-    let handlers: Vec<&dyn Fn(&str, &str)> = vec![
+    let handlers: Vec<&dyn Fn(&str, &str, usize)> = vec![
         &rename,
         &create,
     ];
@@ -227,19 +229,37 @@ fn count(env_ro:&DatabaseEnv, basedir:&str,rule:&TableRule, postfix:&str) {
 }
 
 fn drop_table(env_rw:&DatabaseEnv, table:&str) {
-    util::drop_with_confirm(&env_rw,table);
+    util::drop_with_confirm(&env_rw,table, util::DropConfirmEnum::DropFist);
 }
 
 fn drop_empty_table(env_rw:&DatabaseEnv, rule:&TableRule, postfix:&str) {
     let handle = {
-        |table: &str, _ext: &str| {
+        |table: &str, _year: &str, _i: usize| {
         let table = combine(table, postfix);
         if util::is_empty(&env_rw,&table) {
             println!("----- {table} is empty, and drop.");
-            util::drop_without_confirm(&env_rw,&table);
+            util::drop_with_confirm(&env_rw,&table,util::DropConfirmEnum::DropWarn);
         }
     }};
-    let handlers: Vec<&dyn Fn(&str, &str)> = vec![
+    let handlers: Vec<&dyn Fn(&str, &str, usize)> = vec![
+        &handle,
+    ];
+    // why does work when we use static [] ?????
+    // let handlers = [
+    //     &rename,
+    // ];
+    rule.for_each_tables(&handlers);
+}
+
+fn batch_drop_table(env_rw:&DatabaseEnv, rule:&TableRule, postfix:&str) {
+    let handle = {
+        |table: &str, _year: &str, i:usize| {
+        let table = combine(table, postfix);
+        println!("----- {table} is empty, and drop.");
+        let confirm = util::DropConfirmEnum::from_usize(i);
+        util::drop_with_confirm(&env_rw,&table,confirm);
+    }};
+    let handlers: Vec<&dyn Fn(&str, &str, usize)> = vec![
         &handle,
     ];
     // why does work when we use static [] ?????

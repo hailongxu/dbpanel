@@ -11,22 +11,56 @@ pub use panelenv::DatabaseEnv;
 pub use panelenv::TableRule;
 pub use panelenv::load_panel_env;
 
-pub fn drop_without_confirm(dbw:&DatabaseEnv, table:&str)->ExitStatus {
-    let sql = format!("DROP TABLE {table};");
-    println!("You will \x1b[31mDROP\x1b[0m TABLE [\x1b[31m{table}\x1b[0m]!!!");
-    exe_sql(dbw,&sql)
-}
 
-pub fn drop_with_confirm(dbw:&DatabaseEnv, table:&str)->ExitStatus {
+pub enum DropConfirmEnum {
+    DropFist,
+    DropAgain,
+    DropAll,
+    DropWarn,
+}
+impl DropConfirmEnum {
+    const fn as_n(&self)->usize {
+        match self {
+            DropConfirmEnum::DropFist => 1,
+            DropConfirmEnum::DropAgain => 2,
+            DropConfirmEnum::DropAll => 3,
+            DropConfirmEnum::DropWarn => 4,
+        }
+    }
+    pub const fn from_usize(n:usize)->DropConfirmEnum {
+        match n {
+            0 => DropConfirmEnum::DropFist,
+            1 => DropConfirmEnum::DropAgain,
+            2 => DropConfirmEnum::DropAll,
+            _ => DropConfirmEnum::DropWarn,
+        }
+    }
+    const fn msg(&self)->(&'static str, &'static str) {
+        const MSG: [(&'static str, &'static str); 4] = [
+            ("You will \x1b[31mDROP\x1b[0m TABLE [\x1b[31m{table}\x1b[0m]?, input \x1b[31mDROP\x1b[0m to confirm: ", "DROP"),
+            ("You will \x1b[31mDROP\x1b[0m TABLE [\x1b[31m{table}\x1b[0m]?, input \x1b[31mDROP\x1b[0m to confirm: ", "DROP"),
+            ("You will \x1b[31mDROP\x1b[0m TABLE [\x1b[31m{table}\x1b[0m]?, input \x1b[31mDROP\x1b[0m to confirm: ", "DROP"),
+            ("You will \x1b[31mDROP\x1b[0m TABLE [\x1b[31m{table}\x1b[0m]!!!","")
+        ];
+        let n = self.as_n();
+        assert!(n > 0 && n <= MSG.len());
+        MSG[n]
+    }
+}
+pub fn drop_with_confirm(dbw:&DatabaseEnv, table:&str, confirm:DropConfirmEnum)->ExitStatus {
     let sql = format!("DROP TABLE {table};");
-    print!("You will \x1b[31mDROP\x1b[0m TABLE [\x1b[31m{table}\x1b[0m]?, input \x1b[31mDROP\x1b[0m to confirm: ");
+    let (msg, confirm_str) = confirm.msg();
+    let msg = msg.replace("{table}", table);
+    println!("{msg}");
     std::io::stdout().flush().unwrap();
-    let mut input = String::new();
-    std::io::stdin()
-        .read_line(&mut input)
-        .expect("read input failly");
-    let input = input.trim_end();
-    assert_eq!(input,"DROP");
+    if let DropConfirmEnum::DropWarn = confirm {} else {
+        let mut input = String::new();
+        std::io::stdin()
+            .read_line(&mut input)
+            .expect("read input failly");
+        let input = input.trim_end();
+        assert_eq!(input,confirm_str);
+    }
     exe_sql(dbw,&sql)
 }
 

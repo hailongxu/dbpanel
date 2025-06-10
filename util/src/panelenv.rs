@@ -87,13 +87,15 @@ impl TableRule<'_> {
         }
     }
 
-    pub fn for_each_tables(&self, handles: &[&dyn Fn(&str, &str)]) {
+    pub fn for_each_tables(&self, handles: &[&dyn Fn(&str, &str, usize)]) {
+        let mut i = 0;
         for name in &self.names {
             for year in &self.years {
                 for month in &self.months {
                     for handle in handles {
                         let table = format!("{}{}{}", name, year, month);
-                        handle(&table,year);
+                        handle(&table,year, i);
+                        i += 1;
                     }
                 }
             }
