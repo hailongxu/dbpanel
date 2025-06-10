@@ -1,32 +1,14 @@
 use std::{
-    fmt::Debug, io::{BufRead as _, BufReader}, process::{Command, Stdio}
+    fmt::Debug, process::Command
 };
 use std::io::Write;
 use std::process::ExitStatus;
 use std::process::Output;
 
-//pub const DEFAULT_POSTFIX:&str = "_old";
-//pub const NAMES:[&str; 2] = [
-//    "order_coupons",
-//    "order_consignee",
-//];
-pub const NAMES:[&str; 11] = [
-    "order_assoc_tenant",
-    "order_consignee",
-    "order_coupons",
-    "order_info",
-    "order_invoice",
-    "order_items",
-    "order_logistics",
-    "order_memo",
-    "order_print",
-    "order_promotions",
-    "order_spec_char",
-];
 
 mod cfg;
-pub fn load_migrate_env(cfg:Option<String>)->MigateEnv {
-    load_env::<MigateEnv>(cfg)
+pub fn load_migrate_env(cfg:Option<String>)->PanelEnv {
+    load_env::<PanelEnv>(cfg)
 }
 
 pub fn load_env<T>(cfg:Option<String>) -> T
@@ -43,10 +25,10 @@ where T: serde::de::DeserializeOwned+ Debug,
     cfg
 }
 
-pub fn for_each_tables(years: &[&str], months: &[&str], handles: &[&dyn Fn(&str, &str)]) {
-    for name in NAMES {
-        for year in years {
-            for month in months {
+pub fn for_each_tables(rule:&TableRule, handles: &[&dyn Fn(&str, &str)]) {
+    for name in &rule.names {
+        for year in &rule.years {
+            for month in &rule.months {
                 for handle in handles {
                     let table = format!("{}{}{}", name, year, month);
                     handle(&table,year);
@@ -56,10 +38,10 @@ pub fn for_each_tables(years: &[&str], months: &[&str], handles: &[&dyn Fn(&str,
     }
 }
 
-pub fn for_each_tables_mut(years: &[&str], months: &[&str], handles: &mut[&mut dyn FnMut(&str, &str)]) {
-    for name in NAMES {
-        for year in years {
-            for month in months {
+pub fn for_each_tables_mut(rule:&TableRule, handles: &mut[&mut dyn FnMut(&str, &str)]) {
+    for name in &rule.names {
+        for year in &rule.years {
+            for month in &rule.months {
                 for handle in &mut *handles {
                     let table = format!("{}{}{}", name, year, month);
                     handle(&table,year);
@@ -144,40 +126,62 @@ pub fn rename(dbe:&DatabaseEnv, src_dst:&[(&str,&str)])->ExitStatus {
 
 
 #[derive(Debug, serde::Deserialize)]
-pub struct MigateEnv {
+pub struct PanelEnv {
     url: String,
     user_ro: String,
     user_rw: String,
     passwd_ro: String,
     passwd_rw: String,
     database: String,
+    pub names: Vec<String>,
     pub years: String,
     pub months: String,
     pub basedir: String,
 }
 
-pub fn to_ro_dbenv(env:&MigateEnv)->DatabaseEnv {
-    DatabaseEnv {
-        url: env.url.clone(),
-        user: env.user_ro.clone(),
-        passwd: env.passwd_ro.clone(),
-        database: env.database.clone(),
+impl PanelEnv {
+    pub fn to_ro_dbenv(&self)->DatabaseEnv {
+        DatabaseEnv {
+            url: self.url.clone(),
+            user: self.user_ro.clone(),
+            passwd: self.passwd_ro.clone(),
+            database: self.database.clone(),
+        }
     }
-}
 
-pub fn to_rw_dbenv(env:&MigateEnv)->DatabaseEnv {
-    DatabaseEnv {
-        url: env.url.clone(),
-        user: env.user_rw.clone(),
-        passwd: env.passwd_rw.clone(),
-        database: env.database.clone(),
+    pub fn to_rw_dbenv(&self)->DatabaseEnv {
+        DatabaseEnv {
+            url: self.url.clone(),
+            user: self.user_rw.clone(),
+            passwd: self.passwd_rw.clone(),
+            database: self.database.clone(),
+        }
     }
+
+    pub fn table_rule(&self)->TableRule {
+        let names = self.names.iter().map(
+            |e|e.as_str()).collect();
+        let years = self.years.split_whitespace().collect();
+        let months = self.months.split_whitespace().collect();
+        TableRule {
+            names,
+            years,
+            months,
+        }
+    }
+
 }
 
 #[derive(Debug, serde::Deserialize)]
 pub struct ZipEnv {
     pub basedir: String,
     pub years: String,
+}
+
+pub struct TableRule<'a> {
+    pub names: Vec<&'a str>,
+    pub years: Vec<&'a str>,
+    pub months: Vec<&'a str>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -325,9 +329,9 @@ impl DatabaseEnv {
     }
 }
 
-pub fn for_each_name(basedir:&str,years: &[&str], handle: impl Fn(&str, &str, &str) -> ExitStatus) {
-    for year in years {
-        for name in NAMES {
+pub fn for_each_name(basedir:&str,rule:&TableRule, handle: impl Fn(&str, &str, &str) -> ExitStatus) {
+    for year in &rule.years {
+        for name in &rule.names {
             assert!(handle(basedir,year, name).success());
         }
     }
@@ -358,7 +362,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn it_works() {
+    fn load_env() {
         let result = 4;
         assert_eq!(result, 4);
     }

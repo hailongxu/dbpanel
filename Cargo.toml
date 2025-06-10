@@ -2,12 +2,6 @@
 [workspace]
 members = [
     "util",
-    # "copy",
-    # "dump",
-    # "ziptab",
-    # "take-to-postfix",
-    # "remove-postfix",
-    # "count",
     "migrate",
 ]
 

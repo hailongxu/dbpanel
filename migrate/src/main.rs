@@ -1,4 +1,5 @@
 use std::env::args;
+use util::TableRule;
 use util::{self, for_each_name, for_each_tables, for_each_tables_mut, DatabaseEnv};
 //use util::DEFAULT_POSTFIX;
 use std::fs::File;
@@ -16,45 +17,47 @@ fn main() {
     let postfix = args.next().unwrap_or_default();
 
     let env = util::load_migrate_env(cfg);
-    let env_ro = util::to_ro_dbenv(&env);
-    let env_rw = util::to_rw_dbenv(&env);
+    let env_ro = env.to_ro_dbenv();
+    let env_rw = env.to_rw_dbenv();
+    let rule = env.table_rule();
+
     let years:Vec<_> = env.years.split_whitespace().collect();
     let months:Vec<_> = env.months.split_whitespace().collect();
 
 
     match cmd.as_str() {
         "dumpout" => {
-            dumpout(&env_ro,&years, &months, &postfix, &env.basedir);
+            dumpout(&env_ro,&rule, &postfix, &env.basedir);
         }
         "dumpin" => {
-            dumpin(&env_ro,&years, &months, &postfix, &env.basedir);
+            dumpin(&env_ro,&rule, &postfix, &env.basedir);
         }
         "copy" => {
-            copy(&env_rw, &years, &months, &postfix);
+            copy(&env_rw, &rule, &postfix);
         }
         "zip" => {
-            zip(&env.basedir, &years);
+            zip(&env.basedir, &rule);
         }
         "nameadd" => {
-            add_postfix(&env_rw, &years, &months, &postfix);
+            add_postfix(&env_rw, &rule, &postfix);
         }
         "namendel" => {
-            remove_postfix(&env_rw, &years, &months, &postfix);
+            remove_postfix(&env_rw, &rule, &postfix);
         }
         "take" => {
-            take_to_postfix(&env_rw, &years, &months, &postfix);
+            take_to_postfix(&env_rw, &rule, &postfix);
         }
         "count" => {
-            count(&env_ro, &env.basedir, &years, &months, &postfix);
+            count(&env_ro, &env.basedir, &rule, &postfix);
         }
         "empty" => {
-            empty(&env_ro, &env.basedir, &years, &months, &postfix);
+            empty(&env_ro, &env.basedir, &rule, &postfix);
         }
         "drop" => {
             drop_table(&env_rw, &postfix);
         }
         "drop-empty" => {
-            drop_empty_table(&env_rw, &years, &months, &postfix);
+            drop_empty_table(&env_rw, &rule, &postfix);
         }
         _ => {
             eprintln!("Unknown command: {cmd}");
@@ -63,7 +66,7 @@ fn main() {
     }
 }
 
-fn dumpout(env:&DatabaseEnv, years:&[&str], months:&[&str], postfix:&str, basedir:&str) {
+fn dumpout(env:&DatabaseEnv, rule:&TableRule, postfix:&str, basedir:&str) {
     let dump_out = {
         |table: &str, year: &str| {
         let table = combine(table, postfix);
@@ -73,10 +76,10 @@ fn dumpout(env:&DatabaseEnv, years:&[&str], months:&[&str], postfix:&str, basedi
     let handlers: Vec<&dyn Fn(&str, &str)> = vec![
         &dump_out,
     ];
-    for_each_tables(&years, &months, &handlers);
+    for_each_tables(rule, &handlers);
 }
 
-fn dumpin(env:&DatabaseEnv, years:&[&str], months:&[&str], postfix:&str, basedir:&str) {
+fn dumpin(env:&DatabaseEnv, rule:&TableRule, postfix:&str, basedir:&str) {
     let dump_out = {
         |table: &str, year: &str| {
         let table = combine(table, postfix);
@@ -86,10 +89,10 @@ fn dumpin(env:&DatabaseEnv, years:&[&str], months:&[&str], postfix:&str, basedir
     let handlers: Vec<&dyn Fn(&str, &str)> = vec![
         &dump_out,
     ];
-    for_each_tables(&years, &months, &handlers);
+    for_each_tables(rule, &handlers);
 }
 
-fn copy(env_rw:&DatabaseEnv, years:&[&str], months:&[&str], postfix:&str) {
+fn copy(env_rw:&DatabaseEnv, rule:&TableRule, postfix:&str) {
     let copy = {
         |table: &str, _ext: &str| {
         let table_new = combine(table, postfix);
@@ -102,14 +105,14 @@ fn copy(env_rw:&DatabaseEnv, years:&[&str], months:&[&str], postfix:&str) {
     // let handlers = [
     //     &rename,
     // ];
-    for_each_tables(&years, &months, &handlers);
+    for_each_tables(rule, &handlers);
 }
 
-fn zip(basedir:&str, years:&[&str]) {
-    for_each_name(&basedir,&years,util::zip);
+fn zip(basedir:&str, rule:&TableRule) {
+    for_each_name(&basedir,rule,util::zip);
 }
 
-fn add_postfix(env_rw:&DatabaseEnv, years:&[&str], months:&[&str], postfix:&str) {
+fn add_postfix(env_rw:&DatabaseEnv, rule:&TableRule, postfix:&str) {
     let rename = {
         |table: &str, _ext: &str| {
         util::add_postfix(&env_rw, &table, postfix);
@@ -121,10 +124,10 @@ fn add_postfix(env_rw:&DatabaseEnv, years:&[&str], months:&[&str], postfix:&str)
     // let handlers = [
     //     &rename,
     // ];
-    for_each_tables(&years, &months, &handlers);
+    for_each_tables(rule, &handlers);
 }
 
-fn remove_postfix(env_rw:&DatabaseEnv, years:&[&str], months:&[&str], postfix:&str) {
+fn remove_postfix(env_rw:&DatabaseEnv, rule:&TableRule, postfix:&str) {
     let rename = {
         |table: &str, _ext: &str| {
         let table = combine(table, postfix);
@@ -137,10 +140,10 @@ fn remove_postfix(env_rw:&DatabaseEnv, years:&[&str], months:&[&str], postfix:&s
     // let handlers = [
     //     &rename,
     // ];
-    for_each_tables(&years, &months, &handlers);
+    for_each_tables(rule, &handlers);
 }
 
-fn take_to_postfix(env_rw:&DatabaseEnv, years:&[&str], months:&[&str], postfix:&str) {
+fn take_to_postfix(env_rw:&DatabaseEnv, rule:&TableRule, postfix:&str) {
     // let postfix = if postfix.is_empty() {DEFAULT_POSTFIX} else {postfix};
     let rename = {
         |table: &str, _ext: &str| {
@@ -160,10 +163,10 @@ fn take_to_postfix(env_rw:&DatabaseEnv, years:&[&str], months:&[&str], postfix:&
     // let handlers = [
     //     &rename,
     // ];
-    util::for_each_tables(&years, &months, &handlers);
+    util::for_each_tables(rule, &handlers);
 }
 
-fn empty(env_ro:&DatabaseEnv, basedir:&str,years:&[&str], months:&[&str], postfix:&str) {
+fn empty(env_ro:&DatabaseEnv, basedir:&str,rule:&TableRule, postfix:&str) {
     let countpath = format!("{basedir}/{}-empty{postfix}.txt",env_ro.database);
     eprintln!("----- empty file is at: {countpath} -----");
     let file = File::create(countpath).unwrap();
@@ -191,11 +194,11 @@ fn empty(env_ro:&DatabaseEnv, basedir:&str,years:&[&str], months:&[&str], postfi
     // let handlers = [
     //     &rename,
     // ];
-    for_each_tables_mut(&years, &months, &mut handlers);
+    for_each_tables_mut(rule, &mut handlers);
     writer.flush().unwrap();
 }
 
-fn count(env_ro:&DatabaseEnv, basedir:&str,years:&[&str], months:&[&str], postfix:&str) {
+fn count(env_ro:&DatabaseEnv, basedir:&str,rule:&TableRule, postfix:&str) {
     let countpath = format!("{basedir}/{}-count{postfix}.txt",env_ro.database);
     eprintln!("----- count file is at: {countpath} -----");
     let file = File::create(countpath).unwrap();
@@ -223,7 +226,7 @@ fn count(env_ro:&DatabaseEnv, basedir:&str,years:&[&str], months:&[&str], postfi
     // let handlers = [
     //     &rename,
     // ];
-    for_each_tables_mut(&years, &months, &mut handlers);
+    for_each_tables_mut(rule, &mut handlers);
     writer.flush().unwrap();
 }
 
@@ -231,7 +234,7 @@ fn drop_table(env_rw:&DatabaseEnv, table:&str) {
     util::drop_with_confirm(&env_rw,table);
 }
 
-fn drop_empty_table(env_rw:&DatabaseEnv, years:&[&str], months:&[&str], postfix:&str) {
+fn drop_empty_table(env_rw:&DatabaseEnv, rule:&TableRule, postfix:&str) {
     let handle = {
         |table: &str, _ext: &str| {
         let table = combine(table, postfix);
@@ -247,7 +250,7 @@ fn drop_empty_table(env_rw:&DatabaseEnv, years:&[&str], months:&[&str], postfix:
     // let handlers = [
     //     &rename,
     // ];
-    for_each_tables(&years, &months, &handlers);
+    for_each_tables(rule, &handlers);
 }
 
 fn combine(table:&str, postfix:&str)->String {
