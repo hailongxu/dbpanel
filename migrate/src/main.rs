@@ -23,8 +23,11 @@ fn main() {
 
 
     match cmd.as_str() {
-        "dump" => {
-            dump(&env_ro,&years, &months, &postfix, &env.basedir);
+        "dumpout" => {
+            dumpout(&env_ro,&years, &months, &postfix, &env.basedir);
+        }
+        "dumpin" => {
+            dumpin(&env_ro,&years, &months, &postfix, &env.basedir);
         }
         "copy" => {
             copy(&env_rw, &years, &months, &postfix);
@@ -60,12 +63,25 @@ fn main() {
     }
 }
 
-fn dump(env:&DatabaseEnv, years:&[&str], months:&[&str], postfix:&str, basedir:&str) {
+fn dumpout(env:&DatabaseEnv, years:&[&str], months:&[&str], postfix:&str, basedir:&str) {
     let dump_out = {
         |table: &str, year: &str| {
         let table = combine(table, postfix);
         let outdir = format!("{basedir}/{year}");
         env.dump_out(&table,&outdir);
+    }};
+    let handlers: Vec<&dyn Fn(&str, &str)> = vec![
+        &dump_out,
+    ];
+    for_each_tables(&years, &months, &handlers);
+}
+
+fn dumpin(env:&DatabaseEnv, years:&[&str], months:&[&str], postfix:&str, basedir:&str) {
+    let dump_out = {
+        |table: &str, year: &str| {
+        let table = combine(table, postfix);
+        let sqlfile = format!("{basedir}/{year}/{table}.sql");
+        env.dump_in(&sqlfile);
     }};
     let handlers: Vec<&dyn Fn(&str, &str)> = vec![
         &dump_out,
@@ -242,5 +258,5 @@ fn combine(table:&str, postfix:&str)->String {
 }
 
 fn help() {
-    eprintln!(r"migrate copy|take|dump|zip|nameadd|namendel|count|empty|drop-empty cfg <postfix>");
+    eprintln!(r"migrate copy|take|dumpout|dumpin|zip|nameadd|namendel|count|empty|drop-empty cfg <postfix>");
 }

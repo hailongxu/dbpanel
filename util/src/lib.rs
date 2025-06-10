@@ -6,8 +6,22 @@ use std::process::ExitStatus;
 use std::process::Output;
 
 //pub const DEFAULT_POSTFIX:&str = "_old";
-pub const NAMES:[&str; 1] = [
-    "tablename",
+//pub const NAMES:[&str; 2] = [
+//    "order_coupons",
+//    "order_consignee",
+//];
+pub const NAMES:[&str; 11] = [
+    "order_assoc_tenant",
+    "order_consignee",
+    "order_coupons",
+    "order_info",
+    "order_invoice",
+    "order_items",
+    "order_logistics",
+    "order_memo",
+    "order_print",
+    "order_promotions",
+    "order_spec_char",
 ];
 
 mod cfg;
@@ -55,7 +69,13 @@ pub fn for_each_tables_mut(years: &[&str], months: &[&str], handles: &mut[&mut d
     }
 }
 
-pub fn drop(dbw:&DatabaseEnv, table:&str)->ExitStatus {
+pub fn drop_without_confirm(dbw:&DatabaseEnv, table:&str)->ExitStatus {
+    let sql = format!("DROP TABLE {table};");
+    println!("You will \x1b[31mDROP\x1b[0m TABLE [\x1b[31m{table}\x1b[0m]!!!");
+    dbw.exe_sql(&sql)
+}
+
+pub fn drop_with_confirm(dbw:&DatabaseEnv, table:&str)->ExitStatus {
     let sql = format!("DROP TABLE {table};");
     print!("You will \x1b[31mDROP\x1b[0m TABLE [\x1b[31m{table}\x1b[0m]?, input \x1b[31mDROP\x1b[0m to confirm: ");
     std::io::stdout().flush().unwrap();
@@ -94,6 +114,16 @@ pub fn add_postfix(dbe:&DatabaseEnv, table:&str, postfix:&str)->ExitStatus {
     let src = table;
     let dst = format!("{table}{postfix}");
     rename(dbe, &[(&src, &dst)])
+}
+
+pub fn is_empty(dbe:&DatabaseEnv, table:&str)->bool {
+    let sql = format!("SELECT EXISTS(SELECT 1 FROM {table}) AS is_not_empty");
+    let output = dbe.exe_sql_with_output(&sql);
+    assert!(output.status.success());
+    let stdout = output.stdout.trim_ascii_end();
+    println!("------------ {stdout:?} -----------");
+    assert!(stdout.len()==1);
+    stdout[0] == b'0'
 }
 
 pub fn count(dbe:&DatabaseEnv, table:&str)->(ExitStatus,String) {
@@ -203,20 +233,45 @@ impl DatabaseEnv {
             .expect("failed to execute process")
     }
 
+    pub fn dump_in(&self, sqlfile:&str)->ExitStatus {
+        let url = &self.url;
+        let urlp = format!("-h{url}");
+        let user = &self.user;
+        let userp = format!("-u{}",user);
+        let passwd = &self.passwd;
+        // let passwdp = format!("-p{}",passwd);
+        let database = &self.database;
+        let databasep  = format!("-D{}",database);
+        println!("----- {sqlfile} -----");
+        let passwd_set = format!("export MYSQL_PWD={passwd}");
+        // let passwdp = "";
+        let mysql_cmd = format!("mysql {urlp} {userp} {databasep} < {sqlfile}");
+        let passwd_unset = format!("unset MYSQL_PWD");
+        let cmd = format!("{passwd_set};{mysql_cmd};{passwd_unset};");
+        let status = Command::new("sh")
+            .arg("-c")
+            .arg(cmd)
+            .status()
+            .expect("failed to execute process");
+            
+        println!("process finished with: {status}");
+        status
+    }
+
     pub fn exe_sql_with_output(&self, sql:&str)->Output {
         let url = &self.url;
         let urlp = format!("-h{url}");
         let user = &self.user;
         let userp = format!("-u{}",user);
         let passwd = &self.passwd;
-        let passwdp = format!("-p{}",passwd);
+        // let passwdp = format!("-p{}",passwd);
         let database = &self.database;
         let databasep  = format!("-D{}",database);
         let sqlp = format!("-e'{sql}'");
         println!("----- {sql} -----");
         let passwd_set = format!("export MYSQL_PWD={passwd}");
         let passwdp = "";
-        let mysql_cmd = format!("mysql -NB {urlp} {userp} {passwdp} {databasep} {sqlp}");
+        let mysql_cmd = format!("mysql -NB {urlp} {userp} {databasep} {sqlp}");
         let passwd_unset = format!("unset MYSQL_PWD");
         let cmd = format!("{passwd_set};{mysql_cmd};{passwd_unset};");
         let output = Command::new("sh")
@@ -234,14 +289,14 @@ impl DatabaseEnv {
         let user = &self.user;
         let userp = format!("-u{}",user);
         let passwd = &self.passwd;
-        let passwdp = format!("-p{}",passwd);
+        // let passwdp = format!("-p{}",passwd);
         let database = &self.database;
         let databasep  = format!("-D{}",database);
         let sqlp = format!("-e'{sql}'");
         println!("----- {sql} -----");
         let passwd_set = format!("export MYSQL_PWD={passwd}");
         let passwdp = "";
-        let mysql_cmd = format!("mysql -NB {urlp} {userp} {passwdp} {databasep} {sqlp}");
+        let mysql_cmd = format!("mysql {urlp} {userp} {databasep} {sqlp}");
         let passwd_unset = format!("unset MYSQL_PWD");
         let cmd = format!("{passwd_set};{mysql_cmd};{passwd_unset};");
         let status = Command::new("sh")
@@ -280,7 +335,7 @@ pub fn for_each_name(basedir:&str,years: &[&str], handle: impl Fn(&str, &str, &s
 
 pub fn zip(basedir:&str,year:&str,name:&str)->ExitStatus {
     let dumpdir = format!("{basedir}/{year}");
-    let zipfile = format!("{dumpdir}/{name}.zip");
+    let zipfile = format!("{dumpdir}/{name}{year}.zip");
     let zipsrc = format!("{dumpdir}/{name}*.sql");
 
     // for wildcard * is expanded by shell not by zip,
