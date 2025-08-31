@@ -10,7 +10,7 @@ fn main() {
     args.next(); // ignore the self name
     let Some(cmd) = args.next() else {
         help();
-        std::process::exit(1);
+        std::process::exit(0);
     };
     let cfg = args.next();
     let postfix = args.next().unwrap_or_default();
