@@ -255,7 +255,7 @@ fn batch_drop_table(env_rw:&DatabaseEnv, rule:&TableRule, postfix:&str) {
     let handle = {
         |table: &str, _year: &str, i:usize| {
         let table = combine(table, postfix);
-        println!("----- {table} is empty, and drop.");
+        println!("----- {table} selected, and drop.");
         let confirm = util::DropConfirmEnum::from_usize(i);
         util::drop_with_confirm(&env_rw,&table,confirm);
     }};

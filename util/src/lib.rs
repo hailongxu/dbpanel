@@ -21,10 +21,10 @@ pub enum DropConfirmEnum {
 impl DropConfirmEnum {
     const fn as_n(&self)->usize {
         match self {
-            DropConfirmEnum::DropFist => 1,
-            DropConfirmEnum::DropAgain => 2,
-            DropConfirmEnum::DropAll => 3,
-            DropConfirmEnum::DropWarn => 4,
+            DropConfirmEnum::DropFist => 0,
+            DropConfirmEnum::DropAgain => 1,
+            DropConfirmEnum::DropAll => 2,
+            DropConfirmEnum::DropWarn => 3,
         }
     }
     pub const fn from_usize(n:usize)->DropConfirmEnum {
@@ -43,7 +43,7 @@ impl DropConfirmEnum {
             ("You will \x1b[31mDROP\x1b[0m TABLE [\x1b[31m{table}\x1b[0m]!!!","")
         ];
         let n = self.as_n();
-        assert!(n > 0 && n <= MSG.len());
+        assert!(/*n >= 0 &&*/ n < MSG.len());
         MSG[n]
     }
 }
@@ -194,9 +194,10 @@ pub fn exe_sql_with_output(env_rw: &DatabaseEnv, sql:&str)->Output {
     println!("----- {sql} -----");
     let passwd_set = format!("export MYSQL_PWD={passwd}");
     let passwdp = "";
-    let mysql_cmd = format!("mysql -NB {urlp} {userp} {databasep} {sqlp}");
+    let mysql_cmd = format!("mysql -A -NB {urlp} {userp} {databasep} {sqlp}");
     let passwd_unset = format!("unset MYSQL_PWD");
     let cmd = format!("{passwd_set};{mysql_cmd};{passwd_unset};");
+    // println!("cmd: {cmd}");
     let output = Command::new("sh")
         .arg("-c")
         .arg(cmd)
@@ -219,7 +220,7 @@ pub fn exe_sql(env_rw: &DatabaseEnv, sql:&str)->ExitStatus {
     println!("----- {sql} -----");
     let passwd_set = format!("export MYSQL_PWD={passwd}");
     let passwdp = "";
-    let mysql_cmd = format!("mysql {urlp} {userp} {databasep} {sqlp}");
+    let mysql_cmd = format!("mysql -A {urlp} {userp} {databasep} {sqlp}");
     let passwd_unset = format!("unset MYSQL_PWD");
     let cmd = format!("{passwd_set};{mysql_cmd};{passwd_unset};");
     let status = Command::new("sh")
